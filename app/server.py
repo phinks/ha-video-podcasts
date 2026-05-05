@@ -2,6 +2,7 @@
 """Video Podcast aggregator — Flask app served via HA ingress."""
 
 import os
+import re
 import json
 import time
 import hashlib
@@ -299,6 +300,8 @@ def fetch_feed_ytdlp(url, name_override='', username='', password='', fid=None):
         if not info:
             raise Exception('No info returned from yt-dlp')
 
+        entries_list = list(info.get('entries') or [])
+
         channel_name = name_override or info.get('channel') or info.get('uploader') or info.get('title', url)
         channel_thumb = ''
         for t in reversed(info.get('thumbnails', [])):
@@ -307,12 +310,17 @@ def fetch_feed_ytdlp(url, name_override='', username='', password='', fid=None):
                 break
 
         episodes = []
-        for entry in (info.get('entries') or []):
-            if not entry or not entry.get('id'):
+        for entry in entries_list:
+            if not entry:
                 continue
-            vid_id = entry['id']
-            video_url = f'https://www.youtube.com/watch?v={vid_id}'
-            thumbnail = f'https://i.ytimg.com/vi/{vid_id}/hqdefault.jpg'
+            vid_id = entry.get('id', '')
+            # Use entry URL directly; fall back to YouTube URL construction for YT playlists
+            video_url = (entry.get('url') or entry.get('webpage_url') or
+                         (f'https://www.youtube.com/watch?v={vid_id}' if vid_id else None))
+            if not video_url:
+                continue
+            thumbnail = (entry.get('thumbnail') or
+                         (f'https://i.ytimg.com/vi/{vid_id}/hqdefault.jpg' if vid_id else ''))
 
             duration = ''
             dur_secs = entry.get('duration')
@@ -329,10 +337,16 @@ def fetch_feed_ytdlp(url, name_override='', username='', password='', fid=None):
             if upload_date and len(upload_date) == 8:
                 pub_str = f'{upload_date[:4]}-{upload_date[4:6]}-{upload_date[6:8]}'
 
+            title = entry.get('title') or ''
+            if not title:
+                slug = video_url.rstrip('/').split('/')[-1].split('?')[0]
+                slug = re.sub(r'-\d+$', '', slug)
+                title = slug.replace('-', ' ').title() or 'Untitled'
+
             episodes.append({
-                'id':          feed_id(vid_id),
-                'title':       entry.get('title', 'Untitled'),
-                'description': '',
+                'id':          feed_id(vid_id or video_url),
+                'title':       title,
+                'description': entry.get('description', ''),
                 'published':   pub_str,
                 'duration':    duration,
                 'url':         video_url,
@@ -429,7 +443,6 @@ def refresh_loop():
 
 def sanitize_path(s, max_len=80):
     """Strip filesystem-unsafe chars and trim length."""
-    import re
     s = re.sub(r'[<>:"/\\|?*\x00-\x1f]', '', s)
     s = re.sub(r'\s+', ' ', s).strip()
     return s[:max_len]
@@ -820,7 +833,7 @@ MAIN_HTML = """<!DOCTYPE html>
     <button id="refresh-btn">↻</button>
   </div>
   <div id="add-panel">
-    <input id="channel-input" type="text" placeholder="YouTube @handle, channel name, or any URL (Patreon, Vimeo…)">
+    <input id="channel-input" type="text" placeholder="YouTube @handle, channel name, or any URL (Patreon, Vimeo…)" oninput="onChannelInput(this.value)">
     <button id="lookup-btn">Look up</button>
     <div id="lookup-result"></div>
   </div>
@@ -1082,12 +1095,39 @@ function toggleAddPanel() {
   if (open) document.getElementById('channel-input').focus();
 }
 
+function onChannelInput(val) {
+  const q = val.trim();
+  const isYT = q.includes('youtube.com') || q.includes('youtu.be') ||
+               q.startsWith('@') || !q.startsWith('http');
+  const btn = document.getElementById('lookup-btn');
+  // Show "Look up" only for YouTube; hide it for other URLs (form appears instantly)
+  btn.style.display = (!q || isYT) ? '' : 'none';
+  if (!isYT && q.startsWith('http')) {
+    const result = document.getElementById('lookup-result');
+    const guessedName = q.replace(/^https?:\/\//, '').replace(/\/$/, '');
+    result.style.display = 'block';
+    result.innerHTML = `
+      <div class="ch-url" style="margin-bottom:6px">${esc(q)}</div>
+      <div style="display:flex;flex-direction:column;gap:5px">
+        <input id="feed-dispname" type="text" placeholder="Display name" value="${esc(guessedName)}" style="background:#222;border:1px solid #444;color:#eee;padding:5px 8px;border-radius:4px;font-size:.82em">
+        <input id="feed-username" type="text" placeholder="Username (optional)" style="background:#222;border:1px solid #444;color:#eee;padding:5px 8px;border-radius:4px;font-size:.82em">
+        <input id="feed-password" type="password" placeholder="Password (optional)" style="background:#222;border:1px solid #444;color:#eee;padding:5px 8px;border-radius:4px;font-size:.82em">
+        <button class="add-feed-btn" style="width:100%;background:#2e7d32" data-feed-url="${esc(q)}" data-feed-name="" data-method="ytdlp">+ Add (yt-dlp)</button>
+      </div>`;
+  } else if (!q) {
+    const result = document.getElementById('lookup-result');
+    result.style.display = 'none';
+    result.innerHTML = '';
+  }
+}
+
 async function lookupChannel() {
   const input = document.getElementById('channel-input');
   const btn = document.getElementById('lookup-btn');
   const result = document.getElementById('lookup-result');
   const query = input.value.trim();
   if (!query) return;
+
   btn.disabled = true;
   btn.textContent = 'Looking up…';
   result.style.display = 'none';
@@ -1099,24 +1139,13 @@ async function lookupChannel() {
       body: JSON.stringify({query}),
     });
     result.style.display = 'block';
-    if (data.is_youtube) {
-      result.innerHTML = `
-        <div class="ch-name">${esc(data.name)}</div>
-        <div class="ch-url">${esc(data.feed_url)}</div>
-        <div style="display:flex;gap:6px;margin-top:8px">
-          <button class="add-feed-btn" style="flex:1" data-feed-url="${esc(data.feed_url)}" data-feed-name="${esc(data.name)}" data-method="rss">+ RSS (15 latest)</button>
-          <button class="add-feed-btn" style="flex:1;background:#2e7d32" data-feed-url="${esc(data.uploads_url)}" data-feed-name="${esc(data.name)}" data-method="ytdlp">+ Full catalog</button>
-        </div>`;
-    } else {
-      result.innerHTML = `
-        <div class="ch-name">${esc(data.name)}</div>
-        <div class="ch-url">${esc(data.url)}</div>
-        <div style="margin-top:8px;display:flex;flex-direction:column;gap:5px">
-          <input id="feed-username" type="text" placeholder="Username (optional)" style="background:#222;border:1px solid #444;color:#eee;padding:5px 8px;border-radius:4px;font-size:.82em">
-          <input id="feed-password" type="password" placeholder="Password (optional)" style="background:#222;border:1px solid #444;color:#eee;padding:5px 8px;border-radius:4px;font-size:.82em">
-          <button class="add-feed-btn" style="width:100%;background:#2e7d32" data-feed-url="${esc(data.url)}" data-feed-name="${esc(data.name)}" data-method="ytdlp">+ Add (yt-dlp)</button>
-        </div>`;
-    }
+    result.innerHTML = `
+      <div class="ch-name">${esc(data.name)}</div>
+      <div class="ch-url">${esc(data.feed_url)}</div>
+      <div style="display:flex;gap:6px;margin-top:8px">
+        <button class="add-feed-btn" style="flex:1" data-feed-url="${esc(data.feed_url)}" data-feed-name="${esc(data.name)}" data-method="rss">+ RSS (15 latest)</button>
+        <button class="add-feed-btn" style="flex:1;background:#2e7d32" data-feed-url="${esc(data.uploads_url)}" data-feed-name="${esc(data.name)}" data-method="ytdlp">+ Full catalog</button>
+      </div>`;
   } catch(e) {
     result.style.display = 'block';
     result.innerHTML = `<div class="err">⚠ ${esc(e.message)}</div>`;
@@ -1137,6 +1166,7 @@ async function addFeed(url, name, method='rss', username='', password='') {
     document.getElementById('add-btn').classList.remove('active');
     document.getElementById('channel-input').value = '';
     document.getElementById('lookup-result').style.display = 'none';
+    document.getElementById('lookup-btn').style.display = '';
     setTimeout(load, 2000);
   } catch(e) {
     toast('Failed to add feed: ' + e.message, true);
@@ -1167,7 +1197,8 @@ document.addEventListener('click', function(e) {
   if (addBtn) {
     const username = (document.getElementById('feed-username') || {}).value || '';
     const password = (document.getElementById('feed-password') || {}).value || '';
-    addFeed(addBtn.dataset.feedUrl, addBtn.dataset.feedName, addBtn.dataset.method || 'rss', username, password);
+    const dispName = (document.getElementById('feed-dispname') || {}).value || addBtn.dataset.feedName;
+    addFeed(addBtn.dataset.feedUrl, dispName, addBtn.dataset.method || 'rss', username, password);
     return;
   }
 });
