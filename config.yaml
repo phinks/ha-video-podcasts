@@ -1,5 +1,5 @@
 name: "Video Podcasts"
-version: "1.0.0"
+version: "1.0.3"
 slug: "video_podcasts"
 description: >
   Aggregates video podcast RSS feeds and plays episodes on HA media player devices.
@@ -16,6 +16,10 @@ panel_title: Video Podcasts
 map:
   - share:rw
   - media:rw
+ports:
+  8099/tcp: 8098
+ports_description:
+  8099/tcp: "Patreon OAuth callback"
 options:
   ha_url: "http://homeassistant:8123"
   ha_token: ""

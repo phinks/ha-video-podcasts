@@ -12,6 +12,7 @@ import logging
 
 import feedparser
 import requests
+from urllib.parse import urlencode, urlparse
 from flask import Flask, jsonify, request, Response
 
 logging.basicConfig(level=logging.INFO, format='[podcasts] %(levelname)s %(message)s')
@@ -19,10 +20,12 @@ log = logging.getLogger(__name__)
 
 app = Flask(__name__)
 
-SHARE_DIR  = '/share/podcasts'
-CACHE_FILE = os.path.join(SHARE_DIR, 'cache.json')
-OPTIONS    = '/data/options.json'
-PORT       = 8099
+SHARE_DIR              = '/share/podcasts'
+CACHE_FILE             = os.path.join(SHARE_DIR, 'cache.json')
+PATREON_COOKIES_FILE   = os.path.join(SHARE_DIR, 'patreon_cookies.txt')
+OPTIONS           = '/data/options.json'
+PORT              = 8099
+
 
 def _read_media_dir():
     try:
@@ -98,6 +101,10 @@ def _sync_feeds_to_options(extra_feeds):
             d = {'name': name, 'url': f.get('url', '')}
             if f.get('method'):
                 d['method'] = f['method']
+            if f.get('username'):
+                d['username'] = f['username']
+            if f.get('password'):
+                d['password'] = f['password']
             return d
         opts['feeds'] = [_normalize(f) for f in merged]
         requests.post(
@@ -517,6 +524,9 @@ def do_download(ep_id, url, title, fid):
         **feed_creds,
     }
 
+    if 'patreon.com' in url and os.path.exists(PATREON_COOKIES_FILE):
+        ydl_opts['cookiefile'] = PATREON_COOKIES_FILE
+
     try:
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
             ydl.download([url])
@@ -538,6 +548,34 @@ def do_download(ep_id, url, title, fid):
         log.warning(f'Download failed ({title}): {e}')
         with _dl_lock:
             _downloads[ep_id] = {'status': 'error', 'path': None, 'local_url': None, 'error': str(e)}
+
+
+# ---------------------------------------------------------------------------
+# Patreon cookie management
+# ---------------------------------------------------------------------------
+
+
+@app.route('/api/patreon_cookies', methods=['POST'])
+def api_patreon_cookies_upload():
+    f = request.files.get('file')
+    if not f:
+        return jsonify({'ok': False, 'error': 'No file'}), 400
+    os.makedirs(SHARE_DIR, exist_ok=True)
+    f.save(PATREON_COOKIES_FILE)
+    log.info('Patreon cookies file saved')
+    return jsonify({'ok': True})
+
+@app.route('/api/patreon_cookies', methods=['DELETE'])
+def api_patreon_cookies_delete():
+    try:
+        os.remove(PATREON_COOKIES_FILE)
+    except FileNotFoundError:
+        pass
+    return jsonify({'ok': True})
+
+@app.route('/api/patreon_status')
+def api_patreon_status():
+    return jsonify({'cookies_present': os.path.exists(PATREON_COOKIES_FILE)})
 
 
 # ---------------------------------------------------------------------------
@@ -693,6 +731,12 @@ def api_refresh():
     return jsonify({'ok': True})
 
 
+@app.route('/api/feeds_config')
+def api_feeds_config():
+    feeds = get_feeds_config()
+    return jsonify([{k: ('***' if k == 'password' else v) for k, v in f.items()} for f in feeds])
+
+
 @app.route('/api/status')
 def api_status():
     return jsonify({
@@ -838,6 +882,9 @@ MAIN_HTML = """<!DOCTYPE html>
     <div id="lookup-result"></div>
   </div>
   <div id="feed-list"></div>
+  <div id="patreon-connect" style="padding:10px 14px;border-top:1px solid #333;font-size:.8em;margin-top:auto">
+    <div id="patreon-status"></div>
+  </div>
 </div>
 <div id="main">
   <div id="main-header">
@@ -1211,7 +1258,38 @@ window.onerror = function(msg, src, line) {
   document.getElementById('episodes').innerHTML = '<div style="color:#ef9a9a;padding:20px">JS Error: ' + msg + ' (' + line + ')</div>';
 };
 
+async function checkPatreonStatus() {
+  const el = document.getElementById('patreon-status');
+  if (!el) return;
+  try {
+    const s = await fetchJ('api/patreon_status');
+    if (!s.cookies_present) {
+      el.innerHTML = `
+        <div style="color:#aaa;margin-bottom:4px">Patreon: upload cookies for downloads</div>
+        <input type="file" id="patreon-cookie-file" accept=".txt" style="font-size:.75em;color:#eee;width:100%">
+        <button id="patreon-cookie-btn" style="margin-top:4px;width:100%;background:#f4845f;color:#fff;border:none;padding:4px;cursor:pointer;box-sizing:border-box">Upload cookies.txt</button>`;
+      document.getElementById('patreon-cookie-btn').addEventListener('click', async () => {
+        const f = document.getElementById('patreon-cookie-file').files[0];
+        if (!f) { toast('Select a cookies.txt file first', true); return; }
+        const fd = new FormData(); fd.append('file', f);
+        try {
+          await fetch('api/patreon_cookies', {method:'POST', body: fd});
+          toast('✓ Patreon cookies uploaded');
+          checkPatreonStatus();
+        } catch(e) { toast('Upload failed: ' + e.message, true); }
+      });
+    } else {
+      el.innerHTML = '<span style="color:#4caf50">✓ Patreon cookies loaded</span> <button id="patreon-cookie-clear" style="background:none;border:none;color:#888;cursor:pointer;font-size:.75em">remove</button>';
+      document.getElementById('patreon-cookie-clear').addEventListener('click', async () => {
+        await fetch('api/patreon_cookies', {method:'DELETE'});
+        checkPatreonStatus();
+      });
+    }
+  } catch(e) { el.innerHTML = ''; }
+}
+
 load();
+checkPatreonStatus();
 """
 
 
