@@ -33,3 +33,5 @@ schema:
     - name: str
       url: str
       method: list(rss|ytdlp)?
+      username: str?
+      password: str?

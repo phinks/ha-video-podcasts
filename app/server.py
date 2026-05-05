@@ -273,15 +273,26 @@ def fetch_feed(url, name_override=''):
         }
 
 
-def fetch_feed_ytdlp(url, name_override=''):
+def _cookie_path(fid):
+    os.makedirs(os.path.join(SHARE_DIR, 'cookies'), exist_ok=True)
+    return os.path.join(SHARE_DIR, 'cookies', f'{fid}.txt')
+
+
+def fetch_feed_ytdlp(url, name_override='', username='', password='', fid=None):
     import yt_dlp
     log.info(f'Fetching (yt-dlp) {url}')
+    fid = fid or feed_id(url)
     ydl_opts = {
         'quiet': True,
         'no_warnings': True,
         'extract_flat': 'in_playlist',
         'ignoreerrors': True,
+        'cookiefile': _cookie_path(fid),
     }
+    if username:
+        ydl_opts['username'] = username
+    if password:
+        ydl_opts['password'] = password
     try:
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
             info = ydl.extract_info(url, download=False)
@@ -368,7 +379,9 @@ def refresh_all_feeds():
             continue
         method = fc.get('method', 'rss')
         if method == 'ytdlp':
-            result = fetch_feed_ytdlp(url, fc.get('name', ''))
+            result = fetch_feed_ytdlp(url, fc.get('name', ''),
+                                      username=fc.get('username', ''),
+                                      password=fc.get('password', ''))
         else:
             result = fetch_feed(url, fc.get('name', ''))
         fid = result['id']
@@ -467,6 +480,16 @@ def do_download(ep_id, url, title, fid):
     os.makedirs(out_dir, exist_ok=True)
     out_tmpl = os.path.join(out_dir, f'{stem}.%(ext)s')
 
+    # Look up credentials from feed config
+    feed_creds = {}
+    for fc in get_feeds_config():
+        if feed_id(fc.get('url', '')) == fid:
+            if fc.get('username'):
+                feed_creds['username'] = fc['username']
+            if fc.get('password'):
+                feed_creds['password'] = fc['password']
+            break
+
     with _dl_lock:
         _downloads[ep_id] = {'status': 'downloading', 'path': None, 'local_url': None, 'error': None}
 
@@ -477,6 +500,8 @@ def do_download(ep_id, url, title, fid):
         'merge_output_format': 'mp4',
         'quiet': True,
         'no_warnings': True,
+        'cookiefile': _cookie_path(fid),
+        **feed_creds,
     }
 
     try:
@@ -690,7 +715,12 @@ def api_add_feed():
     if any(f.get('url') == url for f in extra):
         return jsonify({'ok': True, 'note': 'already_added'})
     method = data.get('method', 'rss')
-    extra.append({'name': name or url, 'url': url, 'method': method})
+    entry = {'name': name or url, 'url': url, 'method': method}
+    if data.get('username'):
+        entry['username'] = data['username']
+    if data.get('password'):
+        entry['password'] = data['password']
+    extra.append(entry)
     save_extra_feeds(extra)
     threading.Thread(target=refresh_all_feeds, daemon=True).start()
     return jsonify({'ok': True})
@@ -1081,7 +1111,9 @@ async function lookupChannel() {
       result.innerHTML = `
         <div class="ch-name">${esc(data.name)}</div>
         <div class="ch-url">${esc(data.url)}</div>
-        <div style="margin-top:8px">
+        <div style="margin-top:8px;display:flex;flex-direction:column;gap:5px">
+          <input id="feed-username" type="text" placeholder="Username (optional)" style="background:#222;border:1px solid #444;color:#eee;padding:5px 8px;border-radius:4px;font-size:.82em">
+          <input id="feed-password" type="password" placeholder="Password (optional)" style="background:#222;border:1px solid #444;color:#eee;padding:5px 8px;border-radius:4px;font-size:.82em">
           <button class="add-feed-btn" style="width:100%;background:#2e7d32" data-feed-url="${esc(data.url)}" data-feed-name="${esc(data.name)}" data-method="ytdlp">+ Add (yt-dlp)</button>
         </div>`;
     }
@@ -1093,12 +1125,12 @@ async function lookupChannel() {
   btn.textContent = 'Look up';
 }
 
-async function addFeed(url, name, method='rss') {
+async function addFeed(url, name, method='rss', username='', password='') {
   try {
     await fetchJ('api/add_feed', {
       method: 'POST',
       headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify({url, name, method}),
+      body: JSON.stringify({url, name, method, username, password}),
     });
     toast('Feed added — refreshing…');
     document.getElementById('add-panel').classList.remove('open');
@@ -1132,7 +1164,12 @@ document.addEventListener('click', function(e) {
 
   // Add-feed button in lookup result
   const addBtn = e.target.closest('.add-feed-btn[data-feed-url]');
-  if (addBtn) { addFeed(addBtn.dataset.feedUrl, addBtn.dataset.feedName, addBtn.dataset.method || 'rss'); return; }
+  if (addBtn) {
+    const username = (document.getElementById('feed-username') || {}).value || '';
+    const password = (document.getElementById('feed-password') || {}).value || '';
+    addFeed(addBtn.dataset.feedUrl, addBtn.dataset.feedName, addBtn.dataset.method || 'rss', username, password);
+    return;
+  }
 });
 
 document.addEventListener('keydown', function(e) {
