@@ -1,3 +1,4 @@
 flask
 feedparser
 requests
+yt-dlp
