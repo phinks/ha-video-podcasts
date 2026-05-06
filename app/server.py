@@ -464,9 +464,18 @@ def sanitize_path(s, max_len=80):
 
 
 def local_media_url(path):
-    """Convert /media/foo/bar.mp4 to media-source://media_source/local/foo/bar.mp4"""
+    """Return a direct HTTP URL so AirPlay devices (eg Apple TV) can fetch the file."""
+    import socket
     rel = path[len('/media/'):]
-    return f'media-source://media_source/local/{rel}'
+    try:
+        ha_ip = socket.gethostbyname('homeassistant')
+        return f'http://{ha_ip}:8098/files/{rel}'
+    except Exception:
+        return f'media-source://media_source/local/{rel}'
+
+def local_files_path(path):
+    """Return a relative URL for serving via our own Flask /files/ route (browser-accessible through ingress)."""
+    return 'files/' + path[len('/media/'):]
 
 
 def scan_media_dir():
@@ -490,6 +499,7 @@ def scan_media_dir():
                     'status': 'done',
                     'path': path,
                     'local_url': local_media_url(path),
+                    'files_url': local_files_path(path),
                     'error': None,
                 }
             count += 1
@@ -549,6 +559,7 @@ def do_download(ep_id, url, title, fid):
                 'status': 'done',
                 'path': mp4_path,
                 'local_url': local_media_url(mp4_path),
+                'files_url': local_files_path(mp4_path),
                 'error': None,
             }
         log.info(f'Downloaded: {title}')
@@ -732,6 +743,33 @@ def api_play():
     try:
         ok = play_on_device(entity_id, url, title)
         return jsonify({'ok': ok})
+    except Exception as e:
+        return jsonify({'ok': False, 'error': str(e)}), 500
+
+
+@app.route('/api/get_stream_url', methods=['POST'])
+def api_get_stream_url():
+    import yt_dlp
+    data = request.json or {}
+    url = data.get('url', '')
+    fid = data.get('feed_id', 'default')
+    if not url:
+        return jsonify({'ok': False, 'error': 'Missing url'}), 400
+    try:
+        ydl_opts = {'format': 'best[ext=mp4]/best[height<=1080]/best', 'quiet': True, 'no_warnings': True, 'noplaylist': True}
+        if 'patreon.com' in url and os.path.exists(PATREON_COOKIES_FILE):
+            ydl_opts['cookiefile'] = PATREON_COOKIES_FILE
+        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+            info = ydl.extract_info(url, download=False)
+        stream_url = info.get('url') or ''
+        if not stream_url:
+            for fmt in reversed(info.get('formats', [])):
+                if fmt.get('url') and fmt.get('vcodec') != 'none':
+                    stream_url = fmt['url']
+                    break
+        if not stream_url:
+            return jsonify({'ok': False, 'error': 'Could not extract stream URL'}), 500
+        return jsonify({'ok': True, 'url': stream_url})
     except Exception as e:
         return jsonify({'ok': False, 'error': str(e)}), 500
 
@@ -1107,18 +1145,22 @@ function renderEpisodes(feed) {
     const state = dlStateForEp(ep);
     let actionsHtml;
     const btnStyle = 'display:block;width:100%;padding:9px 12px;border:none;border-radius:4px;cursor:pointer;font-size:14px;font-weight:600;text-align:center';
+    const hereBtn = `<button data-action="play-here" style="${btnStyle};background:#37474f;color:#fff">📱 This device</button>`;
     if (state === 'downloading') {
       actionsHtml = `<span style="display:block;color:#4fc3f7;text-align:center;padding:6px 0;font-size:13px">↻ Downloading…</span>`;
     } else if (state === 'done') {
       actionsHtml = `
         <select class="device-select">${deviceOptions}</select>
-        <button data-action="play" style="${btnStyle};background:#2e7d32;color:#fff" ${!players.length ? 'disabled' : ''}>▶ Play</button>`;
+        <button data-action="play" style="${btnStyle};background:#2e7d32;color:#fff" ${!players.length ? 'disabled' : ''}>▶ Play</button>
+        ${hereBtn}`;
     } else if (state === 'error') {
-      actionsHtml = `<button data-action="download" style="${btnStyle};background:#c62828;color:#fff">↺ Retry</button>`;
+      actionsHtml = `<button data-action="download" style="${btnStyle};background:#c62828;color:#fff">↺ Retry</button>
+        ${hereBtn}`;
     } else {
       actionsHtml = `
         <select class="device-select">${deviceOptions}</select>
-        <button data-action="stream" style="${btnStyle};background:#6a1b9a;color:#fff;margin-bottom:6px" ${!players.length ? 'disabled' : ''}>▶ Stream</button>
+        <button data-action="stream" style="${btnStyle};background:#6a1b9a;color:#fff" ${!players.length ? 'disabled' : ''}>▶ Stream</button>
+        ${hereBtn}
         <button data-action="download" style="${btnStyle};background:#1565c0;color:#fff">⬇ Download</button>`;
     }
     return `
@@ -1183,6 +1225,31 @@ async function streamEpisode(card) {
     toast('Error: ' + e.message, true);
   }
   if (streamBtn) { streamBtn.disabled = false; streamBtn.textContent = '▶ Stream'; }
+}
+
+async function playHere(card) {
+  const btn = card.querySelector('[data-action="play-here"]');
+  const epId = card.dataset.epId;
+  const url = card.dataset.remoteUrl;
+  const feedId = card.dataset.feedId;
+  const dl = downloads[epId] || {};
+  if (dl.files_url) {
+    window.open(dl.files_url, '_blank');
+    return;
+  }
+  if (btn) { btn.disabled = true; btn.textContent = '↻ Resolving…'; }
+  try {
+    const data = await fetchJ('api/get_stream_url', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({url, feed_id: feedId}),
+    });
+    if (data.ok) window.open(data.url, '_blank');
+    else toast('Could not get stream URL: ' + (data.error || 'unknown'), true);
+  } catch(e) {
+    toast('Error: ' + e.message, true);
+  }
+  if (btn) { btn.disabled = false; btn.textContent = '📱 This device'; }
 }
 
 async function downloadEp(card) {
@@ -1370,6 +1437,10 @@ document.addEventListener('click', function(e) {
   // Episode play (thumb or play button)
   const playEl = e.target.closest('[data-action="play"]');
   if (playEl) { const card = playEl.closest('.ep-card'); if (card) playEpisode(card); return; }
+
+  // Play on this device
+  const hereEl = e.target.closest('[data-action="play-here"]');
+  if (hereEl) { const card = hereEl.closest('.ep-card'); if (card) playHere(card); return; }
 
   // Episode stream button
   const streamEl = e.target.closest('[data-action="stream"]');
