@@ -996,15 +996,15 @@ MAIN_HTML = """<!DOCTYPE html>
     #main-header h2{font-size:.9em}
     #main-header p{display:none}
     #episodes{grid-template-columns:1fr;padding:10px;gap:10px}
-    .ep-card{flex-direction:row;height:110px;align-items:stretch}
-    .ep-thumb-wrap{width:130px;min-width:130px;border-radius:8px 0 0 8px;flex-shrink:0}
-    .ep-thumb{aspect-ratio:unset;height:100%;width:100%}
-    .ep-thumb-placeholder{aspect-ratio:unset;height:100%;font-size:1.5em}
-    .ep-body{flex:1;padding:8px;overflow:hidden;min-width:0}
-    .ep-title{font-size:.78em;-webkit-line-clamp:3}
-    .ep-meta{font-size:.68em}
-    .ep-actions{border-top:none;border-left:1px solid #222;padding:8px 6px;gap:4px;width:100px;min-width:100px;max-width:100px;justify-content:center;flex-shrink:0}
-    select.device-select{font-size:.7em;padding:3px 4px}
+    .ep-card{flex-direction:column;height:auto}
+    .ep-thumb-wrap{width:100%;border-radius:8px 8px 0 0}
+    .ep-thumb{aspect-ratio:16/9;height:auto;width:100%}
+    .ep-thumb-placeholder{aspect-ratio:16/9;height:auto;font-size:2em}
+    .ep-body{padding:8px 10px}
+    .ep-title{font-size:.82em;-webkit-line-clamp:2}
+    .ep-meta{font-size:.72em}
+    .ep-actions{border-top:1px solid #222;border-left:none;padding:8px;width:auto;max-width:none;min-width:0;display:grid;grid-template-columns:1fr 1fr;gap:6px}
+    .ep-actions select,.ep-actions span{grid-column:1/-1}
     #toast{bottom:12px;right:12px;left:12px;text-align:center}
   }
 </style>
