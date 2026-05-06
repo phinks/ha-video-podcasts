@@ -637,6 +637,8 @@ def get_media_players():
             name = attrs.get('friendly_name', s['entity_id'])
             if not name:
                 continue
+            if '(airplay)' in name.lower():
+                continue
             is_ma = 'Music Assistant Queue' in attrs.get('source_list', [])
             existing = all_players.get(name)
             if existing is None or (is_ma and not existing['is_ma']):
