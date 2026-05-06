@@ -297,6 +297,8 @@ def fetch_feed_ytdlp(url, name_override='', username='', password='', fid=None):
         'ignoreerrors': True,
         'cookiefile': _cookie_path(fid),
     }
+    if 'patreon.com' in url and os.path.exists(PATREON_COOKIES_FILE):
+        ydl_opts['cookiefile'] = PATREON_COOKIES_FILE
     if username:
         ydl_opts['username'] = username
     if password:
@@ -326,8 +328,14 @@ def fetch_feed_ytdlp(url, name_override='', username='', password='', fid=None):
                          (f'https://www.youtube.com/watch?v={vid_id}' if vid_id else None))
             if not video_url:
                 continue
-            thumbnail = (entry.get('thumbnail') or
-                         (f'https://i.ytimg.com/vi/{vid_id}/hqdefault.jpg' if vid_id else ''))
+            thumbnail = entry.get('thumbnail') or ''
+            if not thumbnail:
+                for t in reversed(entry.get('thumbnails') or []):
+                    if t.get('url'):
+                        thumbnail = t['url']
+                        break
+            if not thumbnail and vid_id and 'youtube.com' in (video_url or ''):
+                thumbnail = f'https://i.ytimg.com/vi/{vid_id}/hqdefault.jpg'
 
             duration = ''
             dur_secs = entry.get('duration')
