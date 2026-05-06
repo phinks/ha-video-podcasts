@@ -938,6 +938,37 @@ MAIN_HTML = """<!DOCTYPE html>
   #toast{position:fixed;bottom:24px;right:24px;background:#1565c0;color:#fff;padding:10px 18px;border-radius:6px;font-size:.85em;display:none;z-index:999}
   #toast.err{background:#c62828}
   .loading{color:#555;text-align:center;margin-top:60px;grid-column:1/-1}
+
+  @media (max-width:640px){
+    body{flex-direction:column;height:100svh}
+    #sidebar{width:100%;min-width:0;border-right:none;border-bottom:1px solid #333;flex-shrink:0;overflow:visible}
+    #sidebar-header{padding:8px 12px}
+    #sidebar-header h1{font-size:.9em}
+    #add-panel{position:fixed;inset:0;z-index:100;overflow-y:auto;display:none}
+    #add-panel.open{display:block}
+    #feed-list{display:flex;flex-direction:row;overflow-x:auto;overflow-y:hidden;flex:none;padding:6px 10px;gap:8px;-webkit-overflow-scrolling:touch;scrollbar-width:none}
+    #feed-list::-webkit-scrollbar{display:none}
+    .feed-item{flex-direction:column;padding:6px 8px;border-bottom:none;border-radius:8px;min-width:68px;max-width:80px;align-items:center;text-align:center;gap:3px;flex-shrink:0}
+    .feed-item.active{background:#1565c0;border-radius:8px}
+    .feed-thumb,.feed-thumb-placeholder{width:38px;height:38px;border-radius:6px}
+    .feed-name{font-size:.65em;white-space:normal;line-height:1.2;overflow:hidden;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical}
+    .feed-count,.feed-error{display:none}
+    #main{flex:1;overflow:hidden;min-height:0}
+    #main-header{padding:8px 12px}
+    #main-header h2{font-size:.9em}
+    #main-header p{display:none}
+    #episodes{grid-template-columns:1fr;padding:10px;gap:10px}
+    .ep-card{flex-direction:row;height:110px;align-items:stretch}
+    .ep-thumb-wrap{width:130px;min-width:130px;border-radius:8px 0 0 8px;flex-shrink:0}
+    .ep-thumb{aspect-ratio:unset;height:100%;width:100%}
+    .ep-thumb-placeholder{aspect-ratio:unset;height:100%;font-size:1.5em}
+    .ep-body{flex:1;padding:8px;overflow:hidden;min-width:0}
+    .ep-title{font-size:.78em;-webkit-line-clamp:3}
+    .ep-meta{font-size:.68em}
+    .ep-actions{border-top:none;border-left:1px solid #222;padding:8px 6px;gap:4px;width:100px;min-width:100px;max-width:100px;justify-content:center;flex-shrink:0}
+    select.device-select{font-size:.7em;padding:3px 4px}
+    #toast{bottom:12px;right:12px;left:12px;text-align:center}
+  }
 </style>
 </head>
 <body>
