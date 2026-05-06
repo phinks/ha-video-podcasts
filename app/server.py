@@ -598,6 +598,18 @@ def _ha_creds():
     return opts.get('ha_url', 'http://homeassistant:8123').rstrip('/'), ''
 
 
+_VIDEO_ENTITY_RE = re.compile(r'(roku|apple.?tv|fire.?tv|chromecast|bravia|shield|nvidia|_tv\b)', re.IGNORECASE)
+_VIDEO_APPS = {'netflix', 'youtube', 'hulu', 'disney+', 'prime video', 'plex', 'hbo', 'tubi',
+               'paramount+', 'peacock', 'sling', 'espn', 'apple tv', 'itunes'}
+
+def _player_type(entity_id, source_list):
+    if _VIDEO_ENTITY_RE.search(entity_id):
+        return 'video'
+    sources_lower = {s.lower() for s in source_list}
+    if len(sources_lower & _VIDEO_APPS) >= 2:
+        return 'video'
+    return 'speaker'
+
 def get_media_players():
     ha_url, ha_token = _ha_creds()
     try:
@@ -625,10 +637,11 @@ def get_media_players():
                     'name': name,
                     'state': s.get('state', ''),
                     'is_ma': is_ma,
+                    'type': _player_type(s['entity_id'], attrs.get('source_list', [])),
                 }
-        players = [{'entity_id': v['entity_id'], 'name': v['name'], 'state': v['state']}
+        players = [{'entity_id': v['entity_id'], 'name': v['name'], 'state': v['state'], 'type': v['type']}
                    for v in all_players.values()]
-        return sorted(players, key=lambda x: x['name'])
+        return sorted(players, key=lambda x: (x['type'], x['name']))
     except Exception as e:
         log.warning(f'Failed to fetch media players: {e}')
         return []
@@ -1032,15 +1045,24 @@ function dlStateForEp(ep) {
   return '';
 }
 
+function buildDeviceOptions() {
+  if (!players.length) return '<option value="">No devices found</option>';
+  const video = players.filter(p => p.type === 'video');
+  const speakers = players.filter(p => p.type !== 'video');
+  const opts = (list) => list.map(p => `<option value="${esc(p.entity_id)}">${esc(p.name)}</option>`).join('');
+  let html = '';
+  if (video.length)    html += `<optgroup label="📺 Video">${opts(video)}</optgroup>`;
+  if (speakers.length) html += `<optgroup label="🔊 Speakers">${opts(speakers)}</optgroup>`;
+  return html;
+}
+
 function renderEpisodes(feed) {
   const container = document.getElementById('episodes');
   if (!feed.episodes.length) {
     container.innerHTML = '<div id="empty">No video episodes found in this feed.</div>';
     return;
   }
-  const deviceOptions = players.length
-    ? players.map(p => `<option value="${esc(p.entity_id)}">${esc(p.name)}</option>`).join('')
-    : '<option value="">No devices found</option>';
+  const deviceOptions = buildDeviceOptions();
 
   container.innerHTML = feed.episodes.map(ep => {
     const state = dlStateForEp(ep);
@@ -1153,7 +1175,7 @@ function updateCardDl(epId) {
   const dl = downloads[epId] || {};
   const actionsDiv = card.querySelector('.ep-actions');
   if (!actionsDiv) return;
-  const deviceOptions = players.map(p => `<option value="${esc(p.entity_id)}">${esc(p.name)}</option>`).join('');
+  const deviceOptions = buildDeviceOptions();
   if (dl.status === 'downloading') {
     actionsDiv.innerHTML = `<span class="dl-status dl-progress">↻ Downloading…</span>`;
   } else if (dl.status === 'done') {
