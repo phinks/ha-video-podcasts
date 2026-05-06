@@ -607,14 +607,27 @@ def get_media_players():
             timeout=5,
         )
         resp.raise_for_status()
-        players = []
+        all_players = {}
         for s in resp.json():
-            if s['entity_id'].startswith('media_player.'):
-                players.append({
+            if not s['entity_id'].startswith('media_player.'):
+                continue
+            if s.get('state') == 'unavailable':
+                continue
+            attrs = s.get('attributes', {})
+            name = attrs.get('friendly_name', s['entity_id'])
+            if not name:
+                continue
+            is_ma = 'Music Assistant Queue' in attrs.get('source_list', [])
+            existing = all_players.get(name)
+            if existing is None or (is_ma and not existing['is_ma']):
+                all_players[name] = {
                     'entity_id': s['entity_id'],
-                    'name': s.get('attributes', {}).get('friendly_name', s['entity_id']),
+                    'name': name,
                     'state': s.get('state', ''),
-                })
+                    'is_ma': is_ma,
+                }
+        players = [{'entity_id': v['entity_id'], 'name': v['name'], 'state': v['state']}
+                   for v in all_players.values()]
         return sorted(players, key=lambda x: x['name'])
     except Exception as e:
         log.warning(f'Failed to fetch media players: {e}')
