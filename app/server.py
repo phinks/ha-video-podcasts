@@ -1145,22 +1145,18 @@ function renderEpisodes(feed) {
     const state = dlStateForEp(ep);
     let actionsHtml;
     const btnStyle = 'display:block;width:100%;padding:9px 12px;border:none;border-radius:4px;cursor:pointer;font-size:14px;font-weight:600;text-align:center';
-    const hereBtn = `<button data-action="play-here" style="${btnStyle};background:#37474f;color:#fff">📱 This device</button>`;
     if (state === 'downloading') {
       actionsHtml = `<span style="display:block;color:#4fc3f7;text-align:center;padding:6px 0;font-size:13px">↻ Downloading…</span>`;
     } else if (state === 'done') {
       actionsHtml = `
         <select class="device-select">${deviceOptions}</select>
-        <button data-action="play" style="${btnStyle};background:#2e7d32;color:#fff" ${!players.length ? 'disabled' : ''}>▶ Play</button>
-        ${hereBtn}`;
+        <button data-action="play" style="${btnStyle};background:#2e7d32;color:#fff">▶ Play</button>`;
     } else if (state === 'error') {
-      actionsHtml = `<button data-action="download" style="${btnStyle};background:#c62828;color:#fff">↺ Retry</button>
-        ${hereBtn}`;
+      actionsHtml = `<button data-action="download" style="${btnStyle};background:#c62828;color:#fff">↺ Retry</button>`;
     } else {
       actionsHtml = `
         <select class="device-select">${deviceOptions}</select>
-        <button data-action="stream" style="${btnStyle};background:#6a1b9a;color:#fff" ${!players.length ? 'disabled' : ''}>▶ Stream</button>
-        ${hereBtn}
+        <button data-action="stream" style="${btnStyle};background:#6a1b9a;color:#fff">▶ Stream</button>
         <button data-action="download" style="${btnStyle};background:#1565c0;color:#fff">⬇ Download</button>`;
     }
     return `
