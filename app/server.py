@@ -413,6 +413,17 @@ def refresh_all_feeds():
                                       password=fc.get('password', ''))
         else:
             result = fetch_feed(url, fc.get('name', ''))
+            if result.get('error') and 'youtube.com' in url:
+                log.warning(f'RSS failed for YouTube feed, falling back to yt-dlp: {url}')
+                # Convert RSS URL (feeds/videos.xml?channel_id=UC...) to channel URL
+                import re as _re
+                _m = _re.search(r'channel_id=(UC[\w-]+)', url)
+                yt_url = f'https://www.youtube.com/channel/{_m.group(1)}' if _m else url
+                ytdlp_result = fetch_feed_ytdlp(yt_url, fc.get('name', ''),
+                                                username=fc.get('username', ''),
+                                                password=fc.get('password', ''))
+                if not ytdlp_result.get('error'):
+                    result = ytdlp_result
         fid = result['id']
         if result.get('error') and fid in old_cache and old_cache[fid].get('episodes'):
             merged = dict(old_cache[fid])
