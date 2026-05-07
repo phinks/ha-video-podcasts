@@ -1123,13 +1123,13 @@ function dlStateForEp(ep) {
 }
 
 function buildDeviceOptions() {
-  if (!players.length) return '<option value="">No devices found</option>';
   const video = players.filter(p => p.type === 'video');
   const speakers = players.filter(p => p.type !== 'video');
   const opts = (list) => list.map(p => `<option value="${esc(p.entity_id)}">${esc(p.name)}</option>`).join('');
-  let html = '';
+  let html = '<option value="__here__">📱 This device</option>';
   if (video.length)    html += `<optgroup label="📺 Video">${opts(video)}</optgroup>`;
   if (speakers.length) html += `<optgroup label="🔊 Speakers">${opts(speakers)}</optgroup>`;
+  if (!video.length && !speakers.length) html += '<option disabled>No devices found</option>';
   return html;
 }
 
@@ -1187,6 +1187,7 @@ async function playEpisode(card) {
   const title = card.dataset.title;
   const entityId = card.querySelector('.device-select')?.value;
   if (!entityId) { toast('Select a device first', true); return; }
+  if (entityId === '__here__') { playHere(card); return; }
   const dl = downloads[epId] || {};
   const url = dl.local_url;
   if (!url) { toast('Download the episode first', true); return; }
@@ -1212,6 +1213,7 @@ async function streamEpisode(card) {
   const feedId = card.dataset.feedId;
   const entityId = card.querySelector('.device-select')?.value;
   if (!entityId) { toast('Select a device first', true); return; }
+  if (entityId === '__here__') { playHere(card); return; }
   if (streamBtn) { streamBtn.disabled = true; streamBtn.textContent = '↻ Resolving…'; }
   try {
     const data = await fetchJ('api/stream', {
